@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>층간소음 기록기</title>
+<meta name="theme-color" content="#0f1216">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<style>
+  :root {
+    --bg: #0f1216; --panel: #181c22; --line: #2a3038; --text: #e8ecf1; --muted: #8b95a3;
+    --accent: #ff8a3d; --ok: #3ecf8e; --warn: #ffc53d; --bad: #ff5a5f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    padding: env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom)); max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 16px 0 4px; }
+  h2 { font-size: 15px; margin: 0 0 10px; color: var(--muted); font-weight: 600; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button { font: inherit; border: 0; border-radius: 10px; padding: 12px 16px; background: #2a3038; color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); color: #1a0d00; font-weight: 700; }
+  button.rec { background: var(--bad); color: #fff; font-weight: 700; }
+  button:disabled { opacity: .4; }
+  .big { font-size: 56px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+  .unit { font-size: 16px; color: var(--muted); margin-left: 4px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+  .stat { background: #12161b; border-radius: 10px; padding: 10px; }
+  .stat .k { font-size: 12px; color: var(--muted); }
+  .stat .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat .lim { font-size: 11px; color: var(--muted); }
+  .over { color: var(--bad) !important; }
+  .near { color: var(--warn) !important; }
+  .meter { height: 12px; background: #12161b; border-radius: 6px; overflow: hidden; margin: 10px 0 4px; position: relative; }
+  .meter > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--ok), var(--warn) 70%, var(--bad)); transition: width .1s; }
+  canvas { width: 100%; display: block; border-radius: 8px; background: #0a0c0f; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 2px; }
+  input[type=range] { width: 100%; }
+  input[type=number], select { font: inherit; background: #12161b; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; width: 100%; }
+  .check { display: flex; gap: 8px; align-items: center; color: var(--text); font-size: 14px; margin-top: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; }
+  .files a { color: var(--accent); display: block; padding: 6px 0; word-break: break-all; }
+  .note { font-size: 13px; color: var(--muted); }
+  .badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 99px; background: #2a3038; color: var(--muted); }
+  .badge.live { background: var(--bad); color: #fff; }
+  details summary { cursor: pointer; color: var(--muted); }
+  .warnbox { border-left: 3px solid var(--warn); padding: 8px 10px; background: #1f1c14; border-radius: 6px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>층간소음 기록기</h1>
+<p class="sub">저주파(쿵쿵) 증폭 녹음 · dB(A) 측정 · 바닥 진동 기록 · 법정 기준 비교</p>
+
+<div class="panel">
+  <div class="row">
+    <button id="btnStart" class="primary">측정 시작</button>
+    <button id="btnRec" class="rec" disabled>● 녹음 시작</button>
+    <button id="btnStop" disabled>정지</button>
+    <span id="status" class="badge">대기</span>
+  </div>
+  <p class="note" id="envNote" style="margin:10px 0 0">휴대폰을 <b>바닥에 화면이 위로 오게</b> 내려놓고, 창문·TV·선풍기를 끈 상태에서 측정하세요.</p>
+</div>
+
+<div class="panel">
+  <h2>현재 소음도 <span id="calBadge" class="badge">미보정</span></h2>
+  <div><span class="big" id="vLA">--</span><span class="unit">dB(A)</span></div>
+  <div class="meter"><i id="meterBar"></i></div>
+  <div class="grid" style="margin-top:10px">
+    <div class="stat"><div class="k">1분 등가소음도 Leq</div><div class="v" id="vLeq">--</div><div class="lim" id="limLeq"></div></div>
+    <div class="stat"><div class="k">최고소음도 Lmax (최근 1분)</div><div class="v" id="vLmax">--</div><div class="lim" id="limLmax"></div></div>
+    <div class="stat"><div class="k">저주파 20–200Hz (Z)</div><div class="v" id="vLF">--</div><div class="lim">쿵쿵·발망치 대역</div></div>
+    <div class="stat"><div class="k">바닥 진동 (가속도 피크)</div><div class="v" id="vVib">--</div><div class="lim" id="vibNote">mg</div></div>
+  </div>
+  <div class="grid" style="margin-top:8px">
+    <div class="stat"><div class="k">측정 시간</div><div class="v" id="vDur">0:00</div></div>
+    <div class="stat"><div class="k">전체 Leq / Lmax</div><div class="v" id="vSess">--</div></div>
+    <div class="stat"><div class="k">기준 초과 (1분 단위)</div><div class="v" id="vExceed">0</div><div class="lim">Leq 또는 Lmax 초과한 분</div></div>
+    <div class="stat"><div class="k">시간대 기준</div><div class="v" id="vPeriod">--</div><div class="lim" id="vPeriodNote"></div></div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>저주파 스펙트로그램 (0–500Hz)</h2>
+  <canvas id="spec" height="160"></canvas>
+  <p class="note" style="margin:6px 0 0">아래쪽(저주파)이 밝게 번지면 발소리·쿵쿵 충격음입니다.</p>
+</div>
+
+<div class="panel">
+  <h2>저주파 증폭 (청취·녹음용)</h2>
+  <label>저주파 부스트 <b id="tBoost">18</b> dB</label>
+  <input type="range" id="boost" min="0" max="36" value="18">
+  <label>전체 증폭 <b id="tGain">20</b> dB</label>
+  <input type="range" id="gain" min="0" max="40" value="20">
+  <label class="check"><input type="checkbox" id="lfOnly" checked> 저주파만 남기기 (500Hz 이상 차단 — 말소리·TV 억제)</label>
+  <label class="check"><input type="checkbox" id="monitor"> 이어폰으로 실시간 듣기 (스피커 사용 시 하울링 주의)</label>
+  <div class="warnbox" style="margin-top:12px">증폭은 <b>녹음 파일을 잘 들리게</b> 하기 위한 것이며, 위의 dB 수치에는 반영되지 않습니다.
+  증폭한 수치를 측정값으로 쓰면 조작으로 판단되어 오히려 불리해집니다. 녹음 시 <b>원본 파일과 증폭 파일이 함께</b> 저장됩니다.</div>
+</div>
+
+<div class="panel">
+  <h2>사건 기록 (자동 감지)</h2>
+  <label>감지 기준: 순간 소음이 이 값 이상이거나 진동 감지 시 <b id="tTrig">--</b> dB(A)</label>
+  <input type="range" id="trig" min="25" max="70" value="45">
+  <div style="max-height:260px; overflow:auto; margin-top:8px">
+    <table><thead><tr><th>시각</th><th>Lmax</th><th>저주파</th><th>진동</th><th>녹음위치</th></tr></thead><tbody id="events"></tbody></table>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <input id="memo" placeholder="메모 (예: 아이 뛰는 소리, 가구 끄는 소리)" style="flex:1; font:inherit; background:#12161b; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:10px">
+    <button id="btnMark">지금 기록</button>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>저장 파일</h2>
+  <div class="files" id="files"><span class="note" id="filesEmpty">녹음을 정지하면 여기에 파일이 나타납니다. 앱을 닫기 전에 꼭 내려받으세요.</span></div>
+  <div class="row" style="margin-top:10px">
+    <button id="btnCsv" disabled>측정 로그 CSV</button>
+    <button id="btnReport" disabled>측정 요약 보고서</button>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>보정 (정확도 높이기)</h2>
+  <p class="note" style="margin-top:0">휴대폰 마이크는 기종마다 감도가 달라 보정 전 수치는 참고용입니다. 정밀 소음계(또는 검증된 소음계 앱이 있는 다른 기기)를 옆에 두고 같은 소리를 측정한 뒤, 이 앱 값이 기준기와 같아지도록 보정값을 조정하세요.</p>
+  <label>보정값 (dBFS → dB 변환 오프셋)</label>
+  <div class="row"><input type="number" id="cal" step="0.5" value="110" style="flex:1"><button id="calDown">−1</button><button id="calUp">+1</button></div>
+  <label class="check"><input type="checkbox" id="calDone"> 기준기와 비교해 보정 완료함</label>
+</div>
+
+<div class="panel">
+  <details>
+    <summary>법정 기준과 측정 요령</summary>
+    <div class="note" style="margin-top:8px">
+      <p><b>공동주택 층간소음의 범위와 기준에 관한 규칙</b> (2023.1.2 시행) — 직접충격소음(뛰거나 걷는 소리 등)</p>
+      <ul>
+        <li>1분 등가소음도(Leq): 주간(06–22시) <b>39 dB(A)</b>, 야간(22–06시) <b>34 dB(A)</b></li>
+        <li>최고소음도(Lmax): 주간 <b>57 dB(A)</b>, 야간 <b>52 dB(A)</b> — 1시간에 3회 이상 초과 시 기준 초과</li>
+        <li>공기전달소음(TV·악기 등) 5분 Leq: 주간 45, 야간 40 dB(A)</li>
+      </ul>
+      <p><b>이 앱의 결과는 공인 측정이 아닙니다.</b> 분쟁조정·소송에서 기준 초과를 다투려면 결국 층간소음 이웃사이센터(1661-2642) 방문 측정이나 공인 측정기관 측정이 필요합니다. 이 앱은 그 전 단계에서 <b>언제·얼마나 자주·어떤 소리가</b> 나는지 꾸준히 기록해 두는 증빙 자료(정황 증거)를 만드는 용도입니다.</p>
+      <p><b>측정 요령</b></p>
+      <ul>
+        <li>휴대폰을 바닥 중앙에 화면이 위로 오게 둡니다(벽·가구에서 1m 이상). 케이스는 벗기는 것이 좋습니다.</li>
+        <li>창문을 닫고 TV·냉장고 근처·선풍기 등 자체 소음원을 피합니다.</li>
+        <li>최소 1시간 이상 연속 측정하고, 날짜별로 반복 기록합니다.</li>
+        <li>측정 중 화면이 꺼지지 않도록 충전기를 연결하세요(화면 꺼짐 방지 자동 요청).</li>
+        <li>내려받은 원본 파일은 수정하지 말고, 보고서에 적힌 SHA-256 값으로 원본임을 입증할 수 있습니다.</li>
+      </ul>
+    </div>
+  </details>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
